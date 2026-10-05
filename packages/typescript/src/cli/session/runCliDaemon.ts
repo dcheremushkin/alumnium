@@ -12,10 +12,13 @@ import { stopMcpTool } from "../../mcp/tools/stopMcpTool.ts";
 import { waitMcpTool } from "../../mcp/tools/waitMcpTool.ts";
 import { Logger } from "../../telemetry/Logger.ts";
 import { Tracer } from "../../telemetry/Tracer.ts";
+import { sleep } from "../../utils/timers.ts";
 import { CliSessionDaemon } from "./CliSessionDaemon.ts";
 import { CliSessionRegistry } from "./CliSessionRegistry.ts";
 
 const logger = Logger.get(import.meta.url);
+
+const ABORT_STOP_TIMEOUT_MS = 10_000;
 
 export namespace runCliDaemon {
   export interface Props {
@@ -75,7 +78,13 @@ export async function runCliDaemon(props: runCliDaemon.Props): Promise<void> {
       return;
     }
     aborting = true;
-    if (daemon.driverId) await stop({ id: daemon.driverId }).catch(() => {});
+    // NOTE: Bounded, a hung stop must not keep the daemon alive, the client
+    // sends only one SIGTERM.
+    if (daemon.driverId)
+      await Promise.race([
+        stop({ id: daemon.driverId }).catch(() => {}),
+        sleep(ABORT_STOP_TIMEOUT_MS),
+      ]);
     await exit(143);
   });
 
