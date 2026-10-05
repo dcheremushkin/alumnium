@@ -109,6 +109,23 @@ export class CliSessionDaemon {
     }
   }
 
+  /**
+   * Synchronous `process.on("exit")` cleanup. A successor daemon may have taken
+   * over the session, so remove only what this daemon still owns. Does nothing
+   * if `start` never listened on the socket.
+   */
+  removeOwnedFilesSync() {
+    const { registry, session } = this.#props;
+    const socketPath = registry.socketPath(session);
+    if (
+      this.#socketIno !== undefined &&
+      fsSync.statSync(socketPath, { throwIfNoEntry: false })?.ino ===
+        this.#socketIno
+    )
+      fsSync.rmSync(socketPath, { force: true });
+    registry.removeEntryFileSyncIfOwned(session, process.pid);
+  }
+
   #onConnection(socket: net.Socket) {
     const connection = new SocketConnection(socket);
     connection.onmessage = (message) =>

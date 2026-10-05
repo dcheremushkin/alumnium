@@ -12,12 +12,22 @@ await main();
 async function main() {
   await setupEmbeddedDependencies();
 
-  const [{ McpCommand }, { ServerCommand }] = await Promise.all([
+  const [
+    { McpCommand },
+    { ServerCommand },
+    { CliSessionCommand, runCliSession },
+  ] = await Promise.all([
     import("../mcp/McpCommand.ts"),
     import("../server/ServerCommand.ts"),
+    import("./CliSessionCommand.ts"),
   ]);
 
-  const COMMANDS = [ServerCommand, McpCommand];
+  // NOTE: cac only matches single-word commands, so `alumnium cli <command>`
+  // is parsed by its own parser.
+  if (Bun.argv[2] === CliSessionCommand.name)
+    return runCliSession(Bun.argv.slice(3));
+
+  const COMMANDS = [ServerCommand, McpCommand, CliSessionCommand];
   const cli = cac("alumnium");
 
   COMMANDS.forEach((command) => command.register(cli));

@@ -171,8 +171,6 @@ async function spawnDaemon(
     ...(isSingleFileExecutable() ? [] : process.argv.slice(1, 2)),
     "cli",
     "start",
-    "--session",
-    session,
     "--capabilities",
     props.capabilities,
     ...(props.serverUrl ? ["--server-url", props.serverUrl] : []),
@@ -186,6 +184,8 @@ async function spawnDaemon(
       // oxlint-disable-next-line no-process-env -- We need it to pass env vars
       ...process.env,
       ALUMNIUM_CLI_DAEMONIZE: z.stringbool().encode(true),
+      // NOTE: Not a `--session` argument, cac would cast `007` to the number 7.
+      ALUMNIUM_CLI_SESSION: session,
     },
   });
   fs.closeSync(log);

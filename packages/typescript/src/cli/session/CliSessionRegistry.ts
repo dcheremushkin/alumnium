@@ -78,10 +78,19 @@ export class CliSessionRegistry extends FileStore {
     await this.remove(`${name}.json`);
   }
 
-  removeEntrySync(name: string) {
-    fsSync.rmSync(this.resolve(`${name}.json`), { force: true });
-    if (process.platform !== "win32")
-      fsSync.rmSync(this.socketPath(name), { force: true });
+  /**
+   * Removes the entry file only if it belongs to the given process.
+   */
+  removeEntryFileSyncIfOwned(name: string, pid: number) {
+    const file = this.resolve(`${name}.json`);
+    let text: string;
+    try {
+      text = fsSync.readFileSync(file, "utf-8");
+    } catch {
+      return;
+    }
+    if (CliSessionRegistry.Entry.safeParse(parseJson(text)).data?.pid === pid)
+      fsSync.rmSync(file, { force: true });
   }
 
   async listEntries(): Promise<CliSessionRegistry.Entry[]> {
