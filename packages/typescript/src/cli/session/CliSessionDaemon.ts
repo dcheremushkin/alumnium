@@ -6,6 +6,7 @@ import type { McpTool } from "../../mcp/tools/McpTool.ts";
 import { ALUMNIUM_VERSION } from "../../package.ts";
 import { Telemetry } from "../../telemetry/Telemetry.ts";
 import { CliProtocol } from "./CliProtocol.ts";
+import { cliCommandLine } from "./CliSessionClient.ts";
 import type { CliSessionRegistry } from "./CliSessionRegistry.ts";
 import { SocketConnection } from "./SocketConnection.ts";
 
@@ -44,6 +45,7 @@ export class CliSessionDaemon {
   #socketIno: number | undefined;
   #closed = false;
   #terminating = false;
+  #exited = false;
 
   constructor(props: CliSessionDaemon.Props) {
     this.#props = props;
@@ -63,13 +65,19 @@ export class CliSessionDaemon {
     this.#driverId = id;
 
     const socketPath = registry.socketPath(session);
+    let rejectListen: (error: Error) => void = () => {};
     try {
       if (process.platform !== "win32")
         await fs.rm(socketPath, { force: true });
       await new Promise<void>((resolve, reject) => {
+        rejectListen = reject;
         this.#server.once("error", reject);
         this.#server.listen(socketPath, resolve);
       });
+      this.#server.removeListener("error", rejectListen);
+      this.#server.on("error", (error) =>
+        logger.error("Session server error: {error}", { error }),
+      );
     } catch (error) {
       await stop({ id }).catch(() => {});
       throw error;
@@ -99,13 +107,14 @@ export class CliSessionDaemon {
 
     try {
       await this.#enqueue(async () => {
+        if (this.#closed) return;
         if (stopDriver) await this.#stop(false);
         else await this.#close();
       });
     } catch (error) {
       logger.error("Failed to stop session: {error}", { error });
     } finally {
-      await this.#props.onExit(0);
+      await this.#exit(0);
     }
   }
 
@@ -143,6 +152,7 @@ export class CliSessionDaemon {
 
     const request = parsed.data;
     let exitCode = 0;
+    let notRunning = false;
     this.#pokeIdleTimer();
 
     try {
@@ -153,10 +163,17 @@ export class CliSessionDaemon {
             "cli.session.name": this.#props.session,
             "cli.session.method": request.method,
           },
-          () =>
-            request.method === "stop"
+          async () => {
+            if (this.#closed) {
+              notRunning = true;
+              throw new Error(
+                `Session '${this.#props.session}' is not running. Run \`${cliCommandLine(this.#props.session, "start")}\` first.`,
+              );
+            }
+            return request.method === "stop"
               ? this.#stop(request.params.saveCache)
-              : this.#run(request.params.tool, request.params.input),
+              : this.#run(request.params.tool, request.params.input);
+          },
         ),
       );
       await connection
@@ -174,7 +191,15 @@ export class CliSessionDaemon {
       this.#pokeIdleTimer();
     }
 
-    if (request.method === "stop") await this.#props.onExit(exitCode);
+    // NOTE: A stop that found the session already closed leaves the exit to
+    // the shutdown that closed it.
+    if (request.method === "stop" && !notRunning) await this.#exit(exitCode);
+  }
+
+  async #exit(code: number) {
+    if (this.#exited) return;
+    this.#exited = true;
+    await this.#props.onExit(code);
   }
 
   async #run(
