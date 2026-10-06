@@ -483,6 +483,8 @@ async function main() {
           $`cd ${PKG_DIR} && bun tsc --project tsconfig.build.json`,
 
           copyAssets(CORE_PKG_ASSETS, DIST_NPM_MAIN_PKG_DIR),
+
+          $`cp -R ${path.resolve(PKG_DIR, "skills")} ${DIST_NPM_MAIN_PKG_DIR}`,
         ]);
 
         distPackageJson.optionalDependencies ??= {};
